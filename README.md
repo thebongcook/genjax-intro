@@ -18,7 +18,7 @@ uv sync
 ## Usage
 
 ```bash
-uv run python house_price_genjax.py
+uv run python src/house_price_genjax.py
 ```
 
 ## Features
