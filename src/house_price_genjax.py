@@ -16,6 +16,8 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+from scipy import stats
 
 from genjax import gen, normal, uniform, Target, ChoiceMap
 from genjax.inference.smc import ImportanceK
@@ -185,6 +187,216 @@ def house_price_model(X):
     return predictions
 
 
+def plot_prior_posterior(posterior_samples, features, save_path="prior_posterior.png"):
+    """
+    Plot prior vs posterior distributions for all model parameters.
+
+    Args:
+        posterior_samples: Dictionary of posterior samples from inference
+        features: List of feature names for coefficient labels
+        save_path: Path to save the figure
+    """
+    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
+    axes = axes.flatten()
+
+    # Define priors (matching the model definition)
+    priors = {
+        "coef_0": {"type": "normal", "loc": 0.0, "scale": 1.0},
+        "coef_1": {"type": "normal", "loc": 0.0, "scale": 1.0},
+        "coef_2": {"type": "normal", "loc": 0.0, "scale": 1.0},
+        "coef_3": {"type": "normal", "loc": 0.0, "scale": 1.0},
+        "intercept": {"type": "normal", "loc": 12.0, "scale": 1.0},
+        "noise_std": {"type": "uniform", "low": 0.1, "high": 0.5},
+    }
+
+    param_labels = {
+        "coef_0": f"β₀ ({features[0]})",
+        "coef_1": f"β₁ ({features[1]})",
+        "coef_2": f"β₂ ({features[2]})",
+        "coef_3": f"β₃ ({features[3]})",
+        "intercept": "Intercept",
+        "noise_std": "Noise σ",
+    }
+
+    param_order = ["coef_0", "coef_1", "coef_2", "coef_3", "intercept", "noise_std"]
+
+    for idx, param in enumerate(param_order):
+        ax = axes[idx]
+        samples = np.array(posterior_samples[param])
+        prior_info = priors[param]
+
+        # Determine x-axis range based on posterior samples (with padding)
+        sample_min, sample_max = samples.min(), samples.max()
+        sample_range = sample_max - sample_min
+        x_min = sample_min - 0.3 * sample_range
+        x_max = sample_max + 0.3 * sample_range
+
+        # For prior, extend range if needed
+        if prior_info["type"] == "normal":
+            prior_min = prior_info["loc"] - 3 * prior_info["scale"]
+            prior_max = prior_info["loc"] + 3 * prior_info["scale"]
+        else:  # uniform
+            prior_min = prior_info["low"]
+            prior_max = prior_info["high"]
+
+        x_min = min(x_min, prior_min)
+        x_max = max(x_max, prior_max)
+        x = np.linspace(x_min, x_max, 200)
+
+        # Plot prior distribution
+        if prior_info["type"] == "normal":
+            prior_pdf = stats.norm.pdf(x, loc=prior_info["loc"], scale=prior_info["scale"])
+        else:  # uniform
+            prior_pdf = stats.uniform.pdf(x, loc=prior_info["low"],
+                                          scale=prior_info["high"] - prior_info["low"])
+
+        ax.plot(x, prior_pdf, 'b-', linewidth=2, label='Prior', alpha=0.7)
+        ax.fill_between(x, prior_pdf, alpha=0.2, color='blue')
+
+        # Plot posterior distribution (KDE of samples)
+        kde = stats.gaussian_kde(samples)
+        posterior_pdf = kde(x)
+        ax.plot(x, posterior_pdf, 'r-', linewidth=2, label='Posterior', alpha=0.7)
+        ax.fill_between(x, posterior_pdf, alpha=0.2, color='red')
+
+        # Add posterior mean and 95% CI
+        post_mean = np.mean(samples)
+        post_ci_low = np.percentile(samples, 2.5)
+        post_ci_high = np.percentile(samples, 97.5)
+        ax.axvline(post_mean, color='red', linestyle='--', alpha=0.8, linewidth=1.5)
+
+        # Styling
+        ax.set_xlabel(param_labels[param], fontsize=11)
+        ax.set_ylabel('Density', fontsize=10)
+        ax.set_title(f"{param_labels[param]}\nμ={post_mean:.3f}, 95% CI=[{post_ci_low:.3f}, {post_ci_high:.3f}]",
+                     fontsize=10)
+        ax.legend(loc='upper right', fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+    plt.suptitle('Prior vs Posterior Distributions\n(Bayesian House Price Model)', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"\n    📊 Prior/Posterior plot saved to: {save_path}")
+
+
+def plot_predictions_scatter(y_true, posterior_samples, X, features, seed=42, save_path="predictions_scatter.png"):
+    """
+    Plot scatter plots of true values vs predictions from prior and posterior.
+
+    Args:
+        y_true: True log prices (test set)
+        posterior_samples: Dictionary of posterior samples from inference
+        X: Feature matrix for predictions (test set)
+        features: List of feature names
+        seed: Random seed for prior sampling
+        save_path: Path to save the figure
+    """
+    np.random.seed(seed)
+    n_samples = 500  # Number of samples to draw
+    n_points = len(y_true)
+
+    # --- Generate Prior Predictions ---
+    # Sample from priors (matching model definition)
+    prior_coef_0 = np.random.normal(0.0, 1.0, n_samples)
+    prior_coef_1 = np.random.normal(0.0, 1.0, n_samples)
+    prior_coef_2 = np.random.normal(0.0, 1.0, n_samples)
+    prior_coef_3 = np.random.normal(0.0, 1.0, n_samples)
+    prior_intercept = np.random.normal(12.0, 1.0, n_samples)
+    prior_noise = np.random.uniform(0.1, 0.5, n_samples)
+
+    prior_coeffs = np.stack([prior_coef_0, prior_coef_1, prior_coef_2, prior_coef_3], axis=1)  # (n_samples, 4)
+
+    # Prior predictions: mean prediction for each test point
+    prior_pred_mean = prior_coeffs @ X.T + prior_intercept[:, None]  # (n_samples, n_points)
+    prior_pred_point = np.mean(prior_pred_mean, axis=0)  # Mean across samples
+    prior_pred_std = np.std(prior_pred_mean, axis=0)
+
+    # --- Generate Posterior Predictions ---
+    post_coef_0 = np.array(posterior_samples["coef_0"])[:n_samples]
+    post_coef_1 = np.array(posterior_samples["coef_1"])[:n_samples]
+    post_coef_2 = np.array(posterior_samples["coef_2"])[:n_samples]
+    post_coef_3 = np.array(posterior_samples["coef_3"])[:n_samples]
+    post_intercept = np.array(posterior_samples["intercept"])[:n_samples]
+
+    post_coeffs = np.stack([post_coef_0, post_coef_1, post_coef_2, post_coef_3], axis=1)
+
+    # Posterior predictions
+    post_pred_mean = post_coeffs @ X.T + post_intercept[:, None]  # (n_samples, n_points)
+    post_pred_point = np.mean(post_pred_mean, axis=0)
+    post_pred_std = np.std(post_pred_mean, axis=0)
+
+    # Convert to actual prices for visualization
+    y_true_price = np.exp(y_true)
+    prior_pred_price = np.exp(prior_pred_point)
+    post_pred_price = np.exp(post_pred_point)
+
+    # --- Create Figure ---
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Determine common axis limits
+    all_prices = np.concatenate([y_true_price, prior_pred_price, post_pred_price])
+    price_min = max(0, np.percentile(all_prices, 1) * 0.8)
+    price_max = np.percentile(all_prices, 99) * 1.1
+
+    # --- Prior Predictions Scatter ---
+    ax1 = axes[0]
+    ax1.scatter(y_true_price, prior_pred_price, alpha=0.4, s=30, c='blue', edgecolors='none')
+    ax1.plot([price_min, price_max], [price_min, price_max], 'k--', linewidth=2, label='Perfect prediction')
+    ax1.set_xlim(price_min, price_max)
+    ax1.set_ylim(price_min, price_max)
+    ax1.set_xlabel('True Price ($)', fontsize=12)
+    ax1.set_ylabel('Predicted Price ($)', fontsize=12)
+    ax1.set_title('Prior Predictions\n(Before seeing data)', fontsize=13, fontweight='bold')
+    ax1.legend(loc='upper left')
+    ax1.grid(True, alpha=0.3)
+
+    # Calculate metrics for prior
+    prior_mae = np.mean(np.abs(prior_pred_price - y_true_price))
+    prior_corr = np.corrcoef(y_true_price, prior_pred_price)[0, 1]
+    ax1.text(0.95, 0.05, f'MAE: ${prior_mae:,.0f}\nCorr: {prior_corr:.3f}',
+             transform=ax1.transAxes, fontsize=10, verticalalignment='bottom',
+             horizontalalignment='right', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+    # --- Posterior Predictions Scatter ---
+    ax2 = axes[1]
+    ax2.scatter(y_true_price, post_pred_price, alpha=0.4, s=30, c='red', edgecolors='none')
+    ax2.plot([price_min, price_max], [price_min, price_max], 'k--', linewidth=2, label='Perfect prediction')
+    ax2.set_xlim(price_min, price_max)
+    ax2.set_ylim(price_min, price_max)
+    ax2.set_xlabel('True Price ($)', fontsize=12)
+    ax2.set_ylabel('Predicted Price ($)', fontsize=12)
+    ax2.set_title('Posterior Predictions\n(After Bayesian inference)', fontsize=13, fontweight='bold')
+    ax2.legend(loc='upper left')
+    ax2.grid(True, alpha=0.3)
+
+    # Calculate metrics for posterior
+    post_mae = np.mean(np.abs(post_pred_price - y_true_price))
+    post_corr = np.corrcoef(y_true_price, post_pred_price)[0, 1]
+    ax2.text(0.95, 0.05, f'MAE: ${post_mae:,.0f}\nCorr: {post_corr:.3f}',
+             transform=ax2.transAxes, fontsize=10, verticalalignment='bottom',
+             horizontalalignment='right', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+    # Format tick labels with dollar signs
+    for ax in axes:
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}k'))
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x/1000:.0f}k'))
+
+    plt.suptitle('True vs Predicted House Prices: Prior vs Posterior', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+    print(f"    📊 Predictions scatter plot saved to: {save_path}")
+
+    return {
+        "prior_mae": prior_mae,
+        "prior_corr": prior_corr,
+        "post_mae": post_mae,
+        "post_corr": post_corr
+    }
+
+
 def main(use_mh=False):
     print("=" * 60)
     print("GenJAX Bayesian House Price Prediction")
@@ -274,6 +486,10 @@ def main(use_mh=False):
 
     noise_samples = posterior_samples["noise_std"]
     print(f"    {'Noise Std':15s}: {jnp.mean(noise_samples):7.3f} ± {jnp.std(noise_samples):.3f}")
+
+    # --- Plot prior vs posterior ---
+    plot_prior_posterior(posterior_samples, features)
+    scatter_metrics = plot_predictions_scatter(y_test, posterior_samples, X_test, features)
 
     # --- Make predictions with uncertainty on HELD-OUT test set ---
     print("\n[5] Holdout predictions with uncertainty (test set):")

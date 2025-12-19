@@ -1,0 +1,53 @@
+============================================================
+GenJAX Bayesian House Price Prediction
+============================================================
+
+[1] Loading data...
+    Loaded 1460 total samples
+    Features: ['GrLivArea', 'OverallQual', 'YearBuilt', 'TotalBsmtSF']
+    Training set: 1021 samples (70%)
+    Test set: 439 samples (30%)
+    Train log prices range: 10.46 to 13.53
+    (Actual prices: $34,900 to $755,000)
+
+[2] Setting up inference...
+
+[3] Running Metropolis-Hastings inference...
+    Number of samples: 1000 (after 1000 burn-in)
+    MH acceptance rate: 23.9%
+    Final step size: 0.0060
+
+[4] Posterior estimates for coefficients:
+--------------------------------------------------
+    GrLivArea      :   0.131 ± 0.008  (95% CI: [0.114, 0.145])
+    OverallQual    :   0.165 ± 0.009  (95% CI: [0.145, 0.182])
+    YearBuilt      :   0.097 ± 0.008  (95% CI: [0.081, 0.111])
+    TotalBsmtSF    :   0.053 ± 0.007  (95% CI: [0.041, 0.069])
+    Intercept      :  12.021 ± 0.005
+    Noise Std      :   0.190 ± 0.005
+
+[5] Holdout predictions with uncertainty (test set):
+--------------------------------------------------
+    Showing 10 of 439 holdout predictions:
+    House | Actual Price  | Predicted (Mean) | 90% Credible Interval
+    -----------------------------------------------------------------
+        1 | $    112,000 | $        95,965 | $    69,720 - $   131,111
+        2 | $    123,600 | $       121,090 | $    88,260 - $   168,519
+        3 | $    240,000 | $       162,360 | $   117,475 - $   225,912
+        4 | $    117,000 | $       113,293 | $    82,670 - $   154,517
+        5 | $    281,213 | $       296,882 | $   218,973 - $   406,171
+        6 | $    275,500 | $       267,801 | $   196,126 - $   365,529
+        7 | $    130,000 | $       120,517 | $    89,439 - $   162,710
+        8 | $    345,000 | $       324,854 | $   232,672 - $   446,342
+        9 | $    123,000 | $       122,754 | $    89,892 - $   165,559
+       10 | $    179,200 | $       189,580 | $   142,051 - $   260,405
+
+[6] Test set summary metrics (all 439 samples):
+--------------------------------------------------
+    MAE (log prices): 0.1183
+    MAE (actual prices): $20,928
+    90% CI coverage: 94.1%
+
+============================================================
+Inference complete!
+============================================================

@@ -1,0 +1,51 @@
+============================================================
+GenJAX Bayesian House Price Prediction
+============================================================
+
+[1] Loading data...
+    Loaded 1460 total samples
+    Features: ['GrLivArea', 'OverallQual', 'YearBuilt', 'TotalBsmtSF']
+    Training set: 1021 samples (70%)
+    Test set: 439 samples (30%)
+    Train log prices range: 10.46 to 13.53
+    (Actual prices: $34,900 to $755,000)
+
+[2] Setting up inference...
+
+[3] Running importance sampling inference...
+    Number of particles: 1000
+
+[4] Posterior estimates for coefficients:
+--------------------------------------------------
+    GrLivArea      :   0.116 ± 0.247  (95% CI: [-0.346, 0.588])
+    OverallQual    :   0.174 ± 0.284  (95% CI: [-0.395, 0.729])
+    YearBuilt      :   0.091 ± 0.236  (95% CI: [-0.379, 0.542])
+    TotalBsmtSF    :   0.043 ± 0.240  (95% CI: [-0.395, 0.513])
+    Intercept      :  12.026 ± 0.197
+    Noise Std      :   0.398 ± 0.075
+
+[5] Holdout predictions with uncertainty (test set):
+--------------------------------------------------
+    Showing 10 of 439 holdout predictions:
+    House | Actual Price  | Predicted (Mean) | 90% Credible Interval
+    -----------------------------------------------------------------
+        1 | $    112,000 | $        97,850 | $    34,101 - $   271,070
+        2 | $    123,600 | $       121,401 | $    41,657 - $   355,248
+        3 | $    240,000 | $       161,917 | $    47,347 - $   497,824
+        4 | $    117,000 | $       116,189 | $    51,273 - $   263,998
+        5 | $    281,213 | $       291,776 | $   105,307 - $   835,386
+        6 | $    275,500 | $       266,397 | $    99,238 - $   685,142
+        7 | $    130,000 | $       122,954 | $    54,602 - $   296,081
+        8 | $    345,000 | $       322,223 | $   117,288 - $   957,747
+        9 | $    123,000 | $       125,042 | $    54,339 - $   300,636
+       10 | $    179,200 | $       187,161 | $    82,738 - $   448,681
+
+[6] Test set summary metrics (all 439 samples):
+--------------------------------------------------
+    MAE (log prices): 0.1209
+    MAE (actual prices): $21,535
+    90% CI coverage: 99.8%
+
+============================================================
+Inference complete!
+============================================================
