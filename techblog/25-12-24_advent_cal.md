@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Probabilistic programming has emerged as a powerful paradigm for building models that reason under uncertainty. Rather than hand-coding complex inference algorithms, practitioners can express their models as programs and let the system handle the mathematical heavy lifting. But here's the catch: general-purpose inference is often too slow, while hand-tuned algorithms are tedious to implement and maintain.
+Probabilistic programming has emerged as a powerful paradigm for building models that reason under uncertainty. In traditional probabilistic ML, practitioners typically handcraft inference algorithms — a laborious and error-prone process that requires deep mathematical expertise. Probabilistic programming changes this: rather than hand-coding complex inference algorithms, practitioners can express their models as programs and let the system handle the mathematical heavy lifting. But here's the catch: general-purpose inference is often too slow, while hand-tuned algorithms are tedious to implement and maintain.
 
 Enter **Gen**—a probabilistic programming system developed by the MIT Probabilistic Computing Project that gives you the best of both worlds: expressive modeling with programmable inference.
 
