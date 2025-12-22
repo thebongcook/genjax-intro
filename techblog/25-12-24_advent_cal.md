@@ -205,7 +205,9 @@ Notice how the credible intervals (CI) capture the actual prices—even on held-
 
 ### Extending the Model: Handling Outliers
 
-Real estate data often has outliers (foreclosures, luxury sales). GenJAX makes it easy to extend our model with stochastic branching:
+Real estate data often has outliers. Now imagine a 2,000 sqft house in a good neighborhood that our model predicts should sell for $450,000—but it actually sold for $180,000 because it was a foreclosure. Without outlier handling, this single data point would drag our coefficients away from their true values, hurting predictions for all normal sales.
+
+In a traditional workflow, you'd need to derive new inference equations from scratch. But with GenJAX, I can simply extend the model with stochastic branching:
 
 ```python
 @gen
