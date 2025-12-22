@@ -14,7 +14,7 @@ Originally built in Julia (as [Gen.jl](https://github.com/probcomp/Gen.jl)), Gen
 
 ### Key capabilities:
 
-- **Hybrid inference**: Seamlessly combine neural network proposals with principled Bayesian inference (MCMC, SMC, variational inference) in a single workflow
+- **Hybrid inference**: Seamlessly combine neural network proposals with principled Bayesian inference (Markov Chain Monte Carlo (MCMC), Sequential Monte Carlo (SMC), variational inference) in a single workflow
 - **Stochastic structure**: Model problems where the number of latent variables is unknown (e.g., object detection, clustering with unknown K)
 - **Programmable trade-offs**: Use high-level abstractions for prototyping, drop down to optimized code for production
 - **Clean API**: Automatic differentiation and inference primitives
@@ -164,11 +164,6 @@ The beauty of this approach is that we don't get a single coefficient estimate�
 ```python
 # Extract posterior samples for coefficients
 coef_samples = posterior_samples["coef_0"]  # GrLivArea coefficient
-
-# Now we can answer questions like:
-# - What's the 95% credible interval for how much living area affects price?
-# - How confident are we that quality matters more than size?
-# - What's the range of plausible prices for a new house?
 ```
 
 Running the [full example](../src/house_price_genjax.py) on the Kaggle dataset with 1,000 importance sampling particles (using a 70/30 train/test split with 1,021 training samples and 439 test samples) gives us:
@@ -229,14 +224,14 @@ def robust_house_price_model(X):
             log_price = normal(predictions[i], noise_std) @ f"log_price_{i}"
 ```
 
-This is where Gen's programmable inference shines—you can mix Gibbs sampling for the discrete outlier indicators with HMC for the continuous coefficients.
+This is where Gen's programmable inference shines—you can mix Gibbs sampling for the discrete outlier indicators with Hamiltonian Monte Carlo (HMC) for the continuous coefficients.
 
 ## Key Takeaways
 
+- **Practical applicability**: As shown in the house price example, GenJAX can tackle real problems while providing honest uncertainty estimates
 - **Programmable inference**: Gen lets you control the algorithm while automating the math—combine importance sampling, MCMC, and neural proposals as needed
 - **Uncertainty quantification**: Instead of point estimates, get full posterior distributions with credible intervals—far more useful for real-world decision-making
 - **Expressive modeling**: Handle complex scenarios like outlier detection through stochastic branching, mixing discrete and continuous inference
-- **Practical applicability**: As shown in the house price example, GenJAX can tackle real problems while providing honest uncertainty estimates
 
 ## Conclusion
 
