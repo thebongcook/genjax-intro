@@ -249,5 +249,6 @@ Genは、プロバビリスティック・プログラミングの考え方の�
 - [Gen.jl GitHubリポジトリ](https://github.com/probcomp/Gen.jl)
 - [MIT確率的計算プロジェクト](https://github.com/probcomp)
 - [Genチュートリアル](https://www.gen.dev/tutorials/)
+- [確率とプロバビリスティック・コンピューティングチュートリアル](https://josephausterweil.github.io/probintro/intro/index.html)
 - [Kaggle House Pricesコンペティション](https://www.kaggle.com/competitions/house-prices-advanced-regression-techniques)
 - Cusumano-Towner, M. F., Saad, F. A., Lew, A., & Mansinghka, V. K. (2019). Gen: A General-Purpose Probabilistic Programming System with Programmable Inference. PLDI 2019.
