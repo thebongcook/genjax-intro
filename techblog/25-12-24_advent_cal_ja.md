@@ -4,7 +4,7 @@
 
 プロバビリスティック・プログラミングは、不確実性の下で推論を行うモデルを構築するための強力なパラダイムとして台頭してきました。従来の確率的機械学習では、実務者は通常、推論アルゴリズムを手作業で設計していました—これは深い数学的専門知識を必要とする、労力がかかりエラーを起こしやすいプロセスです。プロバビリスティック・プログラミングはこれを変えます：複雑な推論アルゴリズムを手作業でコーディングする代わりに、実務者はモデルをプログラムとして表現し、数学的な重労働をシステムに任せることができます。しかし、ここに課題があります：汎用的な推論は往々にして遅すぎる一方で、手作業でチューニングしたアルゴリズムは実装と保守が煩雑です。
 
-そこで登場するのが**Gen**です。MITの確率的計算プロジェクトによって開発されたこのプロバビリスティック・プログラミングシステムは、表現力豊かなモデリングとプログラマブルな推論という両方の利点を提供します。
+そこで登場するのが**Gen**です。MITのプロバビリスティック・コンピューティングプロジェクトによって開発されたこのプロバビリスティック・プログラミングシステムは、表現力豊かなモデリングとプログラマブルな推論という両方の利点を提供します。
 
 ## Genとは何か？
 
@@ -247,7 +247,7 @@ Genは、プロバビリスティック・プログラミングの考え方の�
 - [GenJAXドキュメント](https://genjax.gen.dev/)
 - [GenJAX推論API](https://genjax.gen.dev/library/inference.html)
 - [Gen.jl GitHubリポジトリ](https://github.com/probcomp/Gen.jl)
-- [MIT確率的計算プロジェクト](https://github.com/probcomp)
+- [MITプロバビリスティック・コンピューティングプロジェクト](https://github.com/probcomp)
 - [Genチュートリアル](https://www.gen.dev/tutorials/)
 - [確率とプロバビリスティック・コンピューティングチュートリアル](https://josephausterweil.github.io/probintro/intro/index.html)
 - [Kaggle House Pricesコンペティション](https://www.kaggle.com/competitions/house-prices-advanced-regression-techniques)
