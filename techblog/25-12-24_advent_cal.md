@@ -242,7 +242,7 @@ This is where Gen's programmable inference shines—you can mix Gibbs sampling f
 
 Gen represents a shift in how we think about probabilistic programming: instead of treating inference as a black box, it gives practitioners the tools to build custom algorithms tailored to their models. With GenJAX, these capabilities are now accessible to the broader Python/AI community with the performance benefits of JAX.
 
-Whether you're building Bayesian models for scientific research or developing perception systems that need to reason under uncertainty, GenJAX offer a compelling middle ground between flexibility and automation.
+Whether you're building Bayesian models for scientific research or developing perception systems that need to reason under uncertainty, GenJAX offers a compelling middle ground between flexibility and automation. At Gaudiy, we focus heavily on AI Agents, and probabilistic programming offers a principled framework for quantifying uncertainty in such systems and hence help improve calibration and robustness.
 
 ## References
 
