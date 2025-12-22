@@ -17,7 +17,7 @@ Originally built in Julia (as [Gen.jl](https://github.com/probcomp/Gen.jl)), Gen
 - **Hybrid inference**: Seamlessly combine neural network proposals with principled Bayesian inference (MCMC, SMC, variational inference) in a single workflow
 - **Stochastic structure**: Model problems where the number of latent variables is unknown (e.g., object detection, clustering with unknown K)
 - **Programmable trade-offs**: Use high-level abstractions for prototyping, drop down to optimized code for production
-- **Clean API**: Automatic differentiation and inference primitives without fighting compiler internals
+- **Clean API**: Automatic differentiation and inference primitives
 
 ## Enter GenJAX: GPU-Accelerated Bayesian Inference for Python
 
