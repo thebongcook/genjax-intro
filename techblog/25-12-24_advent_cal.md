@@ -251,4 +251,4 @@ Whether you're building Bayesian models for scientific research or developing pe
 - [Gen Tutorials](https://www.gen.dev/tutorials/)
 - [Probability & Probabilistic Computing Tutorial](https://josephausterweil.github.io/probintro/intro/index.html)
 - [Kaggle House Prices Competition](https://www.kaggle.com/competitions/house-prices-advanced-regression-techniques)
-- Cusumano-Towner, M. F., Saad, F. A., Lew, A., & Mansinghka, V. K. (2019). Gen: A General-Purpose Probabilistic Programming System with Programmable Inference. PLDI 2019.
+- [Cusumano-Towner, M. F., Saad, F. A., Lew, A., & Mansinghka, V. K. (2019). Gen: A General-Purpose Probabilistic Programming System with Programmable Inference. PLDI 2019.](https://www.cs.cmu.edu/~fsaad/assets/papers/2019-CusumanoTownerEtAl-PLDI.pdf)
