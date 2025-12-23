@@ -14,7 +14,8 @@ Originally built in Julia (as [Gen.jl](https://github.com/probcomp/Gen.jl)), Gen
 
 ### Key capabilities:
 
-- **Hybrid inference**: Seamlessly combine neural network proposals with principled Bayesian inference (Markov Chain Monte Carlo (MCMC), Sequential Monte Carlo (SMC), variational inference) in a single workflow
+- **Programmable inference**: Compose inference algorithms (MCMC, SMC, variational inference) tailored to your model's structure—mix Gibbs sampling for discrete variables with HMC for continuous ones
+- **Hybrid inference**: Combine neural network proposals with principled Bayesian inference (out of scope for this post, but a key capability for scaling to complex domains)
 - **Stochastic structure**: Model problems where the number of latent variables is unknown (e.g., object detection, clustering with unknown K)
 - **Programmable trade-offs**: Use high-level abstractions for prototyping, drop down to optimized code for production
 - **Clean API**: Automatic differentiation and inference primitives
@@ -42,7 +43,7 @@ def my_model():
 
 ## Why This Matters
 
-Traditional approaches to probabilistic inference force a trade-off: neural networks are fast but may fail on novel data, while model-based inference is accurate but computationally expensive. GenJAX enable **hybrid approaches** that leverage both—using learned proposals to accelerate principled Bayesian inference.
+Traditional probabilistic programming systems offer limited control over inference: you either accept slow, general-purpose algorithms or implement everything from scratch. Gen's **programmable inference** approach lets you compose algorithm components—importance sampling, MCMC kernels, gradient-based methods—to build inference strategies matched to your model's structure.
 
 This is particularly valuable for:
 
@@ -231,7 +232,7 @@ This is where Gen's programmable inference shines—you can mix Gibbs sampling f
 ## Key Takeaways
 
 - **Practical applicability**: As shown in the house price example, GenJAX can tackle real problems while providing honest uncertainty estimates
-- **Programmable inference**: Gen lets you control the algorithm while automating the math—combine importance sampling, MCMC, and neural proposals as needed
+- **Programmable inference**: Gen lets you control the algorithm while automating the math—combine importance sampling with MCMC kernels as needed
 - **Uncertainty quantification**: Instead of point estimates, get full posterior distributions with credible intervals—far more useful for real-world decision-making
 - **Expressive modeling**: Handle complex scenarios like outlier detection through stochastic branching, mixing discrete and continuous inference
 
@@ -245,7 +246,7 @@ Whether you're building Bayesian models for scientific research or developing pe
 
 - [Gen Official Website](https://www.gen.dev/)
 - [GenJAX Documentation](https://genjax.gen.dev/)
-- [GenJAX Inference API](https://genjax.gen.dev/library/inference.html)
+- [GenJAX GitHub Repository](https://github.com/genjax-community/genjax)
 - [Gen.jl GitHub Repository](https://github.com/probcomp/Gen.jl)
 - [MIT Probabilistic Computing Project](https://github.com/probcomp)
 - [Gen Tutorials](https://www.gen.dev/tutorials/)
