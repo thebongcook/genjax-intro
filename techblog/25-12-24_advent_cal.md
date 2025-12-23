@@ -207,6 +207,25 @@ Test set summary metrics (all 439 samples):
 
 Notice how the credible intervals (CI) capture the actual prices—even on held-out data the model has never seen. The high coverage on the credible intervals shows the model provides honest uncertainty quantification that's far more useful for decision-making than a single point estimate.
 
+#### Why Uncertainty Changes Decisions
+
+Consider House 134 vs House 135 from our results:
+
+| House | Predicted | 90% CI | CI Width |
+|-------|-----------|--------|----------|
+| 134 | $349,954 | $141k - $793k | $651k |
+| 135 | $347,868 | $97k - $1,302k | $1,204k |
+
+A point-estimate model would say both houses are worth ~$350k—virtually identical. But with uncertainty quantification, decision-makers see a completely different picture:
+
+**Mortgage lender**: For House 135, the wide interval ($97k-$1.3M) signals high valuation uncertainty—the model's uncertainty reflects how well the observed features explain prices for similar houses in the training data. A lender might require a 25% down payment instead of the standard 20%, or order additional appraisals. For House 134, the tighter interval provides more confidence, allowing standard terms—even though the predicted price is the same.
+
+**Home buyer** (let's assume our home buyer is both data savvy and has access to a lot of housing data of his neighborhood): If both houses are listed at $380k (about 9% above prediction), the uncertainty tells different stories. For House 134, with its tighter CI, $380k sits well within the plausible range—reasonable to proceed. For House 135, with its wide CI ($97k-$1.3M), the same $380k asking price is harder to evaluate—the true value could be much lower *or* the house could actually be a bargain at $380k. Either way, the buyer should investigate further before committing.
+
+**Real estate investor**: What represents risk to a lender can represent opportunity to an investor. House 135's wide uncertainty flags it as a property where the model lacks confidence—potentially due to unique characteristics that create arbitrage opportunities. An investor might prioritize investigating this house to find whether it's mispriced, while House 134's tighter bounds suggest the market has likely priced it correctly.
+
+The key insight: **identical predicted prices with different uncertainty bounds should lead to different actions**. Point estimates hide this crucial information.
+
 ### Extending the Model: Handling Outliers
 
 Real estate data often has outliers. Now imagine a 2,000 sqft house in a good neighborhood that our model predicts should sell for $450,000—but it actually sold for $180,000 because it was a foreclosure. Without outlier handling, this single data point would drag our coefficients away from their true values, hurting predictions for all normal sales.
