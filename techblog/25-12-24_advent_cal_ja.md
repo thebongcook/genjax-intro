@@ -211,6 +211,21 @@ coef_samples = posterior_samples["coef_0"]  # GrLivArea係数
 従来のワークフローでは、新しい推論方程式を一から導出する必要がありました。しかしGenJAXでは、確率的分岐を使ってモデルを簡単に拡張できます：
 
 ```python
+from genjax import switch
+
+# 通常の住宅：予測周りの狭いガウス分布
+@gen
+def inlier_obs(mean, noise_std):
+    return normal(mean, noise_std) @ "obs"
+
+# 外れ値：広い一様分布
+@gen
+def outlier_obs(mean, noise_std):
+    return uniform(10.0, 14.0) @ "obs"
+
+# switchはインデックスで分岐を選択：0 → inlier_obs、1 → outlier_obs
+obs_model = switch(inlier_obs, outlier_obs)
+
 @gen
 def robust_house_price_model(X):
     # ... 係数と切片は以前と同様 ...
@@ -218,13 +233,9 @@ def robust_house_price_model(X):
     for i in range(X.shape[0]):
         # この住宅は外れ値か？
         is_outlier = flip(0.05) @ f"outlier_{i}"
-
-        if is_outlier:
-            # 外れ値：広い一様分布
-            log_price = uniform(10.0, 14.0) @ f"log_price_{i}"
-        else:
-            # 通常の住宅：予測周りの狭いガウス分布
-            log_price = normal(predictions[i], noise_std) @ f"log_price_{i}"
+        # switchは整数インデックスが必要；flipはboolを返す
+        idx = is_outlier.astype(jnp.int32)
+        log_price = obs_model(idx, (predictions[i], noise_std), (predictions[i], noise_std)) @ f"y_{i}"
 ```
 
 ここがGenのプログラマブル推論が輝くところです—離散的な外れ値インジケータにはギブスサンプリングを、連続的な係数にはハミルトニアンモンテカルロ（HMC）を混合できます。

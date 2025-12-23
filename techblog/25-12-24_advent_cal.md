@@ -211,6 +211,21 @@ Real estate data often has outliers. Now imagine a 2,000 sqft house in a good ne
 In a traditional workflow, you'd need to derive new inference equations from scratch. But with GenJAX, I can simply extend the model with stochastic branching:
 
 ```python
+from genjax import switch
+
+# Normal houses: tight Gaussian around prediction
+@gen
+def inlier_obs(mean, noise_std):
+    return normal(mean, noise_std) @ "obs"
+
+# Outliers: broad uniform distribution
+@gen
+def outlier_obs(mean, noise_std):
+    return uniform(10.0, 14.0) @ "obs"
+
+# switch selects branch by index: 0 → inlier_obs, 1 → outlier_obs
+obs_model = switch(inlier_obs, outlier_obs)
+
 @gen
 def robust_house_price_model(X):
     # ... coefficients and intercept as before ...
@@ -218,13 +233,9 @@ def robust_house_price_model(X):
     for i in range(X.shape[0]):
         # Is this house an outlier?
         is_outlier = flip(0.05) @ f"outlier_{i}"
-
-        if is_outlier:
-            # Outliers: broad uniform distribution
-            log_price = uniform(10.0, 14.0) @ f"log_price_{i}"
-        else:
-            # Normal houses: tight Gaussian around prediction
-            log_price = normal(predictions[i], noise_std) @ f"log_price_{i}"
+        # switch requires integer index; flip returns bool
+        idx = is_outlier.astype(jnp.int32)
+        log_price = obs_model(idx, (predictions[i], noise_std), (predictions[i], noise_std)) @ f"y_{i}"
 ```
 
 This is where Gen's programmable inference shines—you can mix Gibbs sampling for the discrete outlier indicators with Hamiltonian Monte Carlo (HMC) for the continuous coefficients.
