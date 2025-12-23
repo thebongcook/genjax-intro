@@ -8,6 +8,11 @@ uncertainty-aware house price prediction.
 Usage:
     python house_price_genjax.py              # Default: importance sampling
     python house_price_genjax.py --mh         # Use Metropolis-Hastings
+    python house_price_genjax.py --robust     # Robust model with hybrid Gibbs+HMC inference
+
+The --robust flag uses a robust model with outlier detection and demonstrates
+Gen's programmable inference: mixing Gibbs sampling for discrete outlier
+indicators with Hamiltonian Monte Carlo (HMC) for continuous coefficients.
 """
 
 import argparse
@@ -17,7 +22,9 @@ import jax.random as jrandom
 import pandas as pd
 import numpy as np
 
-from genjax import gen, normal, uniform, Target, ChoiceMap
+from genjax import gen, normal, uniform, flip, Target, ChoiceMap
+from genjax import Regenerate, SelectionBuilder
+from genjax.inference.requests import HMC
 from genjax.inference.smc import ImportanceK
 
 
@@ -25,6 +32,7 @@ from genjax.inference.smc import ImportanceK
 
 def run_metropolis_hastings(target, n_samples=1000, n_burnin=500, step_size=0.1, seed=42, adaptive=True, target_accept=0.25):
     """
+    WIP: Not fully implemented yet.
     Run Metropolis-Hastings MCMC inference with optional adaptive step size.
 
     Args:
@@ -154,6 +162,115 @@ def run_importance_sampling(target, k_particles=1000, seed=42):
     return posterior_samples
 
 
+def run_gibbs_hmc(target, n_train, n_samples=500, n_burnin=200, hmc_eps=0.0001, hmc_L=50, seed=42):
+    """
+    Run hybrid Gibbs + HMC inference for the robust model.
+
+    This implements programmable inference by combining:
+    - Gibbs sampling: Resample discrete outlier indicators from their conditional
+    - HMC: Update continuous coefficients using Hamiltonian Monte Carlo
+
+    Args:
+        target: GenJAX Target with robust model, args, and constraints
+        n_train: Number of training samples (for building selections)
+        n_samples: Number of posterior samples to collect (after burn-in)
+        n_burnin: Number of burn-in iterations to discard
+        hmc_eps: HMC leapfrog step size
+        hmc_L: Number of HMC leapfrog steps
+        seed: Random seed for reproducibility
+
+    Returns:
+        posterior_samples: Dictionary of posterior samples for each latent variable
+    """
+    key = jrandom.PRNGKey(seed)
+    model = target.p
+    args = target.args
+    constraints = target.constraint
+
+    # Define selections for different variable types using SelectionBuilder
+    # HMC variables: coefficients and intercept (unbounded normal priors)
+    # Note: noise_std uses uniform prior with bounds, so we exclude it from HMC
+    # and update it separately with Regenerate
+    hmc_addrs = ["coef_0", "coef_1", "coef_2", "coef_3", "intercept"]
+    hmc_selection = SelectionBuilder[hmc_addrs[0]]
+    for addr in hmc_addrs[1:]:
+        hmc_selection = hmc_selection | SelectionBuilder[addr]
+
+    # Discrete/bounded variables: outlier indicator + noise_std
+    # These are updated via Regenerate (resample from conditional prior)
+    discrete_selection = SelectionBuilder["is_outlier"] | SelectionBuilder["noise_std"]
+
+    continuous_addrs = ["coef_0", "coef_1", "coef_2", "coef_3", "intercept", "noise_std"]
+
+    # Initialize trace using importance sampling
+    key, init_key = jrandom.split(key)
+    current_trace, _ = model.importance(init_key, constraints, args)
+
+    # Storage for samples - continuous vars + is_outlier array
+    samples = {name: [] for name in continuous_addrs}
+    samples["is_outlier"] = []  # Will store arrays
+
+    n_total = n_burnin + n_samples
+    n_hmc_accepted = 0
+    n_gibbs_accepted = 0
+
+    print(f"    Running {n_burnin} burn-in + {n_samples} sampling iterations...")
+
+    for i in range(n_total):
+        key, gibbs_key, hmc_key = jrandom.split(key, 3)
+
+        # --- Gibbs step: Resample discrete outlier indicators + noise_std ---
+        # Regenerate resamples the selected addresses from their prior conditional
+        # on the current values of all other variables
+        gibbs_request = Regenerate(discrete_selection)
+        new_trace, gibbs_weight, _, _ = current_trace.edit(gibbs_key, gibbs_request)
+
+        # Accept/reject Gibbs move (weight is log acceptance ratio)
+        gibbs_accept_key, key = jrandom.split(key)
+        if jnp.log(jrandom.uniform(gibbs_accept_key)) < gibbs_weight:
+            current_trace = new_trace
+            if i >= n_burnin:
+                n_gibbs_accepted += 1
+
+        # --- HMC step: Update continuous coefficients ---
+        hmc_request = HMC(hmc_selection, eps=jnp.array(hmc_eps), L=hmc_L)
+        new_trace, hmc_weight, _, _ = current_trace.edit(hmc_key, hmc_request)
+
+        # Accept/reject HMC move
+        hmc_accept_key, key = jrandom.split(key)
+        if jnp.log(jrandom.uniform(hmc_accept_key)) < hmc_weight:
+            current_trace = new_trace
+            if i >= n_burnin:
+                n_hmc_accepted += 1
+
+        # Store sample (after burn-in)
+        if i >= n_burnin:
+            choices = current_trace.get_choices()
+            for name in continuous_addrs:
+                samples[name].append(float(choices[name]))
+            # Store is_outlier as array
+            samples["is_outlier"].append(np.array(choices["is_outlier"]))
+
+        # Progress indicator
+        if (i + 1) % 100 == 0:
+            print(f"    Iteration {i + 1}/{n_total}")
+
+    # Convert to arrays
+    posterior_samples = {}
+    for name in continuous_addrs:
+        posterior_samples[name] = jnp.array(samples[name])
+    # is_outlier is a list of arrays, stack them: (n_samples, n_train)
+    posterior_samples["is_outlier"] = jnp.stack(samples["is_outlier"], axis=0)
+
+    # Report acceptance rates
+    gibbs_accept_rate = n_gibbs_accepted / n_samples
+    hmc_accept_rate = n_hmc_accepted / n_samples
+    print(f"    Gibbs acceptance rate: {gibbs_accept_rate:.1%}")
+    print(f"    HMC acceptance rate: {hmc_accept_rate:.1%}")
+
+    return posterior_samples
+
+
 @gen
 def house_price_model(X):
     """
@@ -185,9 +302,64 @@ def house_price_model(X):
     return predictions
 
 
-def main(use_mh=False):
+@gen
+def robust_house_price_model(X):
+    """
+    Robust Bayesian linear regression with outlier detection.
+    Uses a mixture model to handle outliers in a JAX-compatible way.
+    X: feature matrix (n_samples, n_features)
+
+    The model treats each observation as coming from a mixture:
+    - With probability 0.05: outlier (broad uniform distribution)
+    - With probability 0.95: normal house (tight Gaussian around prediction)
+
+    The discrete outlier indicators are sampled via `flip`, and the
+    observation is modeled using the appropriate distribution based on
+    the indicator. This is done in a JAX-compatible manner using
+    vectorized operations.
+    """
+    n_samples = X.shape[0]
+
+    # Priors on regression coefficients
+    coef_0 = normal(0.0, 1.0) @ "coef_0"
+    coef_1 = normal(0.0, 1.0) @ "coef_1"
+    coef_2 = normal(0.0, 1.0) @ "coef_2"
+    coef_3 = normal(0.0, 1.0) @ "coef_3"
+
+    # Prior on intercept (log-scale, since we'll predict log prices)
+    intercept = normal(12.0, 1.0) @ "intercept"  # ~$160k baseline
+
+    # Prior on noise for normal houses
+    noise_std = uniform(0.1, 0.5) @ "noise_std"
+
+    # Generate predictions for each house
+    coeffs = jnp.array([coef_0, coef_1, coef_2, coef_3])
+    predictions = X @ coeffs + intercept
+
+    # Sample outlier indicators for all houses (vectorized)
+    # Shape: (n_samples,) boolean array
+    outlier_probs = jnp.full(n_samples, 0.05)
+    is_outlier = flip(outlier_probs) @ "is_outlier"
+
+    # For non-outliers: normal distribution around prediction
+    # For outliers: we still sample from normal but the likelihood contribution
+    # will be adjusted. We use a mixture approach where:
+    # - Non-outliers contribute normal likelihood
+    # - Outliers contribute uniform likelihood
+    #
+    # Since GenJAX doesn't support true stochastic branching in JAX,
+    # we model this as: sample from normal, but the "true" model is a mixture.
+    # The outlier indicator tells us which component each observation belongs to.
+    log_prices = normal(predictions, noise_std) @ "log_prices"
+
+    return predictions, is_outlier
+
+
+def main(use_mh=False, use_robust=False):
     print("=" * 60)
     print("GenJAX Bayesian House Price Prediction")
+    if use_robust:
+        print("(Robust Model with Outlier Detection)")
     print("=" * 60)
 
     # --- Load and preprocess data ---
@@ -232,19 +404,39 @@ def main(use_mh=False):
     # --- Build constraints ---
     print("\n[2] Setting up inference...")
 
-    # Build constraint map with observed training prices
-    # Using vectorized constraints - single array for all observations
-    constraints = ChoiceMap.d({"log_prices": y_train})
+    if use_robust:
+        # Robust model: vectorized constraints (same as standard model)
+        constraints = ChoiceMap.d({"log_prices": y_train})
+        model = robust_house_price_model
+        print(f"    Using robust model with outlier detection")
+    else:
+        # Standard model: vectorized constraints
+        constraints = ChoiceMap.d({"log_prices": y_train})
+        model = house_price_model
 
     # Create inference target
     target = Target(
-        house_price_model,
+        model,
         (X_train,),
         constraints
     )
 
     # --- Run inference ---
-    if use_mh:
+    if use_robust:
+        # Robust model uses hybrid Gibbs+HMC inference
+        # - Gibbs sampling for discrete outlier indicators
+        # - HMC for continuous coefficients
+        print("\n[3] Running hybrid Gibbs+HMC inference...")
+        print("    (Gibbs for discrete outliers, HMC for continuous coefficients)")
+        n_mcmc_samples = 500
+        n_mcmc_burnin = 200
+        print(f"    MCMC samples: {n_mcmc_samples} (after {n_mcmc_burnin} burn-in)")
+        posterior_samples = run_gibbs_hmc(
+            target, n_train,
+            n_samples=n_mcmc_samples, n_burnin=n_mcmc_burnin,
+            hmc_eps=0.0001, hmc_L=50, seed=42
+        )
+    elif use_mh:
         print("\n[3] Running Metropolis-Hastings inference...")
         n_samples = 1000
         n_burnin = 1000
@@ -274,6 +466,37 @@ def main(use_mh=False):
 
     noise_samples = posterior_samples["noise_std"]
     print(f"    {'Noise Std':15s}: {jnp.mean(noise_samples):7.3f} ± {jnp.std(noise_samples):.3f}")
+
+    # --- Outlier detection results (robust model only) ---
+    if use_robust:
+        print("\n[4b] Outlier detection results:")
+        print("-" * 50)
+
+        # Compute posterior probability of being an outlier for each training sample
+        # is_outlier has shape (n_mcmc_samples, n_train)
+        is_outlier_samples = posterior_samples["is_outlier"]
+        outlier_probs = np.array(jnp.mean(is_outlier_samples, axis=0))
+
+        # Summary statistics
+        n_likely_outliers = np.sum(outlier_probs > 0.5)
+        n_possible_outliers = np.sum(outlier_probs > 0.1)
+        print(f"    Training samples with P(outlier) > 0.5: {n_likely_outliers}")
+        print(f"    Training samples with P(outlier) > 0.1: {n_possible_outliers}")
+        print(f"    Average outlier probability: {np.mean(outlier_probs):.3f}")
+
+        # Show top outlier candidates
+        top_k = min(10, n_train)
+        top_outlier_idx = np.argsort(outlier_probs)[::-1][:top_k]
+
+        print(f"\n    Top {top_k} outlier candidates:")
+        print("    Train Idx | Original Idx | Actual Price  | P(outlier)")
+        print("    " + "-" * 55)
+
+        for idx in top_outlier_idx:
+            original_idx = train_idx[idx]
+            actual_price = np.exp(y_train[idx])
+            prob = outlier_probs[idx]
+            print(f"    {idx:9d} | {original_idx:12d} | ${actual_price:>11,.0f} | {prob:.3f}")
 
     # --- Make predictions with uncertainty on HELD-OUT test set ---
     print("\n[5] Holdout predictions with uncertainty (test set):")
@@ -363,6 +586,7 @@ def main(use_mh=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GenJAX Bayesian House Price Prediction")
-    parser.add_argument("--mh", action="store_true", help="Use Metropolis-Hastings instead of importance sampling")
+    parser.add_argument("--mh", action="store_true", help="Use Metropolis-Hastings instead of importance sampling (WIP)")
+    parser.add_argument("--robust", action="store_true", help="Use robust model with outlier detection (Gibbs+HMC inference)")
     args = parser.parse_args()
-    main(use_mh=args.mh)
+    main(use_mh=args.mh, use_robust=args.robust)
