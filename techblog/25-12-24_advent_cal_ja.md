@@ -6,6 +6,9 @@
 
 そこで登場するのが**Gen**です。MITのプロバビリスティック・コンピューティングプロジェクトによって開発されたこのプロバビリスティック・プログラミングシステムは、表現力豊かなモデリングとプログラマブルな推論という両方の利点を提供します。
 
+![Probabilistic Programs as the intersection of Symbolic Languages, Probabilistic Models, and Neural Networks](assets/probabilistic-programs-venn.png)
+*出典: https://jpcca.org/probcomp
+
 ## Genとは何か？
 
 Genは、推論アルゴリズムの難解な数学と低レベルの実装詳細を自動化しながら、ユーザーに特定のモデルに合わせたソリューションをカスタマイズする柔軟性を与えるオープンソースのプロバビリスティック・プログラミングシステムです。

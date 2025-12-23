@@ -6,6 +6,9 @@ Probabilistic programming has emerged as a powerful paradigm for building models
 
 Enter **Gen**—a probabilistic programming system developed by the MIT Probabilistic Computing Project that gives you the best of both worlds: expressive modeling with programmable inference.
 
+![Probabilistic Programs as the intersection of Symbolic Languages, Probabilistic Models, and Neural Networks](assets/probabilistic-programs-venn.png)
+*Source: https://jpcca.org/en/probcomp*
+
 ## What is Gen?
 
 Gen is an open-source probabilistic programming system that automates the tricky math and low-level implementation details of inference algorithms while giving users the flexibility to customize solutions for their specific models.
