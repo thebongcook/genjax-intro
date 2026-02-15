@@ -29,7 +29,134 @@ from genjax.inference.requests import HMC
 from genjax.inference.smc import ImportanceK
 
 
-# --- Model Definition ---
+# --- Model Definitions ---
+
+@gen
+def house_price_model(X):
+    """
+    Bayesian linear regression for house prices.
+    X: feature matrix (n_samples, n_features)
+    """
+    # Priors on regression coefficients
+    # We expect positive coefficients for quality/size features
+    coef_0 = normal(0.0, 1.0) @ "coef_0"
+    coef_1 = normal(0.0, 1.0) @ "coef_1"
+    coef_2 = normal(0.0, 1.0) @ "coef_2"
+    coef_3 = normal(0.0, 1.0) @ "coef_3"
+
+    # Prior on intercept (log-scale, since we'll predict log prices)
+    intercept = normal(12.0, 1.0) @ "intercept"  # ~$160k baseline
+
+    # Prior on noise (houses vary in price even with same features)
+    # Log-normal: median ~0.30, 95% range ~[0.11, 0.55]
+    noise_std = log_normal(-1.2, 0.5) @ "noise_std"
+
+    # Generate predictions for each house
+    coeffs = jnp.array([coef_0, coef_1, coef_2, coef_3])
+    predictions = X @ coeffs + intercept
+
+    # Likelihood: observed prices given our linear model
+    # GenJAX supports vectorized distributions - the normal distribution
+    # broadcasts over the predictions array, treating each as independent
+    normal(predictions, noise_std) @ "log_prices"
+
+    return predictions
+
+
+@gen
+def robust_house_price_model(X):
+    """
+    Robust Bayesian linear regression with outlier detection.
+    Uses a mixture model to handle outliers in a JAX-compatible way.
+    X: feature matrix (n_samples, n_features)
+
+    The model treats each observation as coming from a mixture:
+    - With probability 0.95: normal house (tight Gaussian around prediction)
+    - With probability 0.05: outlier (wide Gaussian, 10x noise)
+
+    The discrete outlier indicators are sampled via `flip`, and observations
+    use different noise levels based on outlier status. This allows the model
+    to identify data points that don't fit the linear relationship.
+    """
+    n_samples = X.shape[0]
+
+    # Priors on regression coefficients
+    coef_0 = normal(0.0, 1.0) @ "coef_0"
+    coef_1 = normal(0.0, 1.0) @ "coef_1"
+    coef_2 = normal(0.0, 1.0) @ "coef_2"
+    coef_3 = normal(0.0, 1.0) @ "coef_3"
+
+    # Prior on intercept (log-scale, since we'll predict log prices)
+    intercept = normal(12.0, 1.0) @ "intercept"  # ~$160k baseline
+
+    # Prior on noise for normal houses
+    # Log-normal: median ~0.30, 95% range ~[0.11, 0.55]
+    noise_std = log_normal(-1.2, 0.5) @ "noise_std"
+
+    # Generate predictions for each house
+    coeffs = jnp.array([coef_0, coef_1, coef_2, coef_3])
+    predictions = X @ coeffs + intercept
+
+    # Sample outlier indicators for all houses (vectorized)
+    # Shape: (n_samples,) boolean array
+    outlier_probs = jnp.full(n_samples, 0.05)
+    is_outlier = flip(outlier_probs) @ "is_outlier"
+
+    # Use different noise levels for outliers vs normal observations:
+    # - Normal houses: tight Gaussian with noise_std
+    # - Outliers: wide Gaussian with 10x noise (captures extreme deviations)
+    outlier_noise_scale = 10.0
+    effective_noise = jnp.where(is_outlier, noise_std * outlier_noise_scale, noise_std)
+
+    # Likelihood with per-observation noise based on outlier status
+    normal(predictions, effective_noise) @ "log_prices"
+
+    return predictions, is_outlier
+
+
+# --- Inference Steps ---
+
+def gibbs_step(trace, key, selection):
+    """Resample selected addresses from their conditional distribution."""
+    request = Regenerate(selection)
+    trace, _, _, _ = trace.edit(key, request)
+    return trace
+
+
+def hmc_step(trace, key, selection, eps, L):
+    """Propose an HMC move and accept/reject via Metropolis-Hastings."""
+    hmc_key, accept_key = jrandom.split(key)
+    request = HMC(selection, eps=jnp.array(eps), L=L)
+    new_trace, weight, _, _ = trace.edit(hmc_key, request)
+    accepted = jnp.log(jrandom.uniform(accept_key)) < weight
+    trace = new_trace if accepted else trace
+    return trace, accepted
+
+
+# --- Inference Algorithms ---
+
+def run_importance_sampling(target, k_particles=1000, seed=42):
+    """
+    Run importance sampling inference.
+
+    Args:
+        target: GenJAX Target with model, args, and constraints
+        k_particles: Number of particles for importance sampling
+        seed: Random seed for reproducibility
+
+    Returns:
+        posterior_samples: Dictionary of posterior samples for each latent variable
+    """
+    alg = ImportanceK(target, k_particles=k_particles)
+    key = jrandom.PRNGKey(seed)
+
+    sub_keys = jrandom.split(key, k_particles)
+    _, posterior_samples = jax.vmap(alg.random_weighted, in_axes=(0, None))(
+        sub_keys, target
+    )
+
+    return posterior_samples
+
 
 def run_metropolis_hastings(target, n_samples=1000, n_burnin=500, step_size=0.1, seed=42, adaptive=True, target_accept=0.25):
     """
@@ -132,44 +259,72 @@ def run_metropolis_hastings(target, n_samples=1000, n_burnin=500, step_size=0.1,
     return posterior_samples
 
 
-def run_importance_sampling(target, k_particles=1000, seed=42):
+def run_hmc(target, n_samples=1000, n_burnin=500, hmc_eps=0.0001, hmc_L=50, seed=42):
     """
-    Run importance sampling inference.
+    Run HMC inference for the standard model (all continuous variables).
 
     Args:
         target: GenJAX Target with model, args, and constraints
-        k_particles: Number of particles for importance sampling
+        n_samples: Number of posterior samples to collect (after burn-in)
+        n_burnin: Number of burn-in iterations to discard
+        hmc_eps: HMC leapfrog step size
+        hmc_L: Number of HMC leapfrog steps
         seed: Random seed for reproducibility
 
     Returns:
         posterior_samples: Dictionary of posterior samples for each latent variable
     """
-    alg = ImportanceK(target, k_particles=k_particles)
     key = jrandom.PRNGKey(seed)
+    model = target.p
+    args = target.args
+    constraints = target.constraint
 
-    sub_keys = jrandom.split(key, k_particles)
-    _, posterior_samples = jax.vmap(alg.random_weighted, in_axes=(0, None))(
-        sub_keys, target
-    )
+    latent_names = ["coef_0", "coef_1", "coef_2", "coef_3", "intercept"]
+    hmc_selection = Selection.at[latent_names[0]]
+    for addr in latent_names[1:]:
+        hmc_selection = hmc_selection | Selection.at[addr]
+
+    # noise_std uses log_normal (positive-valued), update via Regenerate
+    noise_selection = Selection.at["noise_std"]
+    all_latents = latent_names + ["noise_std"]
+
+    # Initialize trace
+    key, init_key = jrandom.split(key)
+    current_trace, _ = model.importance(init_key, constraints, args)
+
+    samples = {name: [] for name in all_latents}
+    n_total = n_burnin + n_samples
+    n_hmc_accepted = 0
+
+    print(f"    Running {n_burnin} burn-in + {n_samples} sampling iterations...")
+
+    for i in range(n_total):
+        key, noise_key, hmc_key = jrandom.split(key, 3)
+
+        # Regenerate noise_std from conditional
+        current_trace = gibbs_step(current_trace, noise_key, noise_selection)
+
+        # HMC for coefficients + intercept
+        current_trace, accepted = hmc_step(
+            current_trace, hmc_key, hmc_selection, hmc_eps, hmc_L
+        )
+        if accepted and i >= n_burnin:
+            n_hmc_accepted += 1
+
+        if i >= n_burnin:
+            choices = current_trace.get_choices()
+            for name in all_latents:
+                samples[name].append(float(choices[name]))
+
+        if (i + 1) % 100 == 0:
+            print(f"    Iteration {i + 1}/{n_total}")
+
+    posterior_samples = {name: jnp.array(vals) for name, vals in samples.items()}
+
+    hmc_accept_rate = n_hmc_accepted / n_samples
+    print(f"    HMC acceptance rate: {hmc_accept_rate:.1%}")
 
     return posterior_samples
-
-
-def gibbs_step(trace, key, selection):
-    """Resample selected addresses from their conditional distribution."""
-    request = Regenerate(selection)
-    trace, _, _, _ = trace.edit(key, request)
-    return trace
-
-
-def hmc_step(trace, key, selection, eps, L):
-    """Propose an HMC move and accept/reject via Metropolis-Hastings."""
-    hmc_key, accept_key = jrandom.split(key)
-    request = HMC(selection, eps=jnp.array(eps), L=L)
-    new_trace, weight, _, _ = trace.edit(hmc_key, request)
-    accepted = jnp.log(jrandom.uniform(accept_key)) < weight
-    trace = new_trace if accepted else trace
-    return trace, accepted
 
 
 def run_gibbs_hmc(target, n_samples=500, n_burnin=200, hmc_eps=0.0001, hmc_L=50, seed=42):
@@ -259,156 +414,7 @@ def run_gibbs_hmc(target, n_samples=500, n_burnin=200, hmc_eps=0.0001, hmc_L=50,
     return posterior_samples
 
 
-def run_hmc(target, n_samples=1000, n_burnin=500, hmc_eps=0.0001, hmc_L=50, seed=42):
-    """
-    Run HMC inference for the standard model (all continuous variables).
-
-    Args:
-        target: GenJAX Target with model, args, and constraints
-        n_samples: Number of posterior samples to collect (after burn-in)
-        n_burnin: Number of burn-in iterations to discard
-        hmc_eps: HMC leapfrog step size
-        hmc_L: Number of HMC leapfrog steps
-        seed: Random seed for reproducibility
-
-    Returns:
-        posterior_samples: Dictionary of posterior samples for each latent variable
-    """
-    key = jrandom.PRNGKey(seed)
-    model = target.p
-    args = target.args
-    constraints = target.constraint
-
-    latent_names = ["coef_0", "coef_1", "coef_2", "coef_3", "intercept"]
-    hmc_selection = Selection.at[latent_names[0]]
-    for addr in latent_names[1:]:
-        hmc_selection = hmc_selection | Selection.at[addr]
-
-    # noise_std uses log_normal (positive-valued), update via Regenerate
-    noise_selection = Selection.at["noise_std"]
-    all_latents = latent_names + ["noise_std"]
-
-    # Initialize trace
-    key, init_key = jrandom.split(key)
-    current_trace, _ = model.importance(init_key, constraints, args)
-
-    samples = {name: [] for name in all_latents}
-    n_total = n_burnin + n_samples
-    n_hmc_accepted = 0
-
-    print(f"    Running {n_burnin} burn-in + {n_samples} sampling iterations...")
-
-    for i in range(n_total):
-        key, noise_key, hmc_key = jrandom.split(key, 3)
-
-        # Regenerate noise_std from conditional
-        current_trace = gibbs_step(current_trace, noise_key, noise_selection)
-
-        # HMC for coefficients + intercept
-        current_trace, accepted = hmc_step(
-            current_trace, hmc_key, hmc_selection, hmc_eps, hmc_L
-        )
-        if accepted and i >= n_burnin:
-            n_hmc_accepted += 1
-
-        if i >= n_burnin:
-            choices = current_trace.get_choices()
-            for name in all_latents:
-                samples[name].append(float(choices[name]))
-
-        if (i + 1) % 100 == 0:
-            print(f"    Iteration {i + 1}/{n_total}")
-
-    posterior_samples = {name: jnp.array(vals) for name, vals in samples.items()}
-
-    hmc_accept_rate = n_hmc_accepted / n_samples
-    print(f"    HMC acceptance rate: {hmc_accept_rate:.1%}")
-
-    return posterior_samples
-
-
-@gen
-def house_price_model(X):
-    """
-    Bayesian linear regression for house prices.
-    X: feature matrix (n_samples, n_features)
-    """
-    # Priors on regression coefficients
-    # We expect positive coefficients for quality/size features
-    coef_0 = normal(0.0, 1.0) @ "coef_0"
-    coef_1 = normal(0.0, 1.0) @ "coef_1"
-    coef_2 = normal(0.0, 1.0) @ "coef_2"
-    coef_3 = normal(0.0, 1.0) @ "coef_3"
-
-    # Prior on intercept (log-scale, since we'll predict log prices)
-    intercept = normal(12.0, 1.0) @ "intercept"  # ~$160k baseline
-
-    # Prior on noise (houses vary in price even with same features)
-    # Log-normal: median ~0.30, 95% range ~[0.11, 0.55]
-    noise_std = log_normal(-1.2, 0.5) @ "noise_std"
-
-    # Generate predictions for each house
-    coeffs = jnp.array([coef_0, coef_1, coef_2, coef_3])
-    predictions = X @ coeffs + intercept
-
-    # Likelihood: observed prices given our linear model
-    # GenJAX supports vectorized distributions - the normal distribution
-    # broadcasts over the predictions array, treating each as independent
-    normal(predictions, noise_std) @ "log_prices"
-
-    return predictions
-
-
-@gen
-def robust_house_price_model(X):
-    """
-    Robust Bayesian linear regression with outlier detection.
-    Uses a mixture model to handle outliers in a JAX-compatible way.
-    X: feature matrix (n_samples, n_features)
-
-    The model treats each observation as coming from a mixture:
-    - With probability 0.95: normal house (tight Gaussian around prediction)
-    - With probability 0.05: outlier (wide Gaussian, 10x noise)
-
-    The discrete outlier indicators are sampled via `flip`, and observations
-    use different noise levels based on outlier status. This allows the model
-    to identify data points that don't fit the linear relationship.
-    """
-    n_samples = X.shape[0]
-
-    # Priors on regression coefficients
-    coef_0 = normal(0.0, 1.0) @ "coef_0"
-    coef_1 = normal(0.0, 1.0) @ "coef_1"
-    coef_2 = normal(0.0, 1.0) @ "coef_2"
-    coef_3 = normal(0.0, 1.0) @ "coef_3"
-
-    # Prior on intercept (log-scale, since we'll predict log prices)
-    intercept = normal(12.0, 1.0) @ "intercept"  # ~$160k baseline
-
-    # Prior on noise for normal houses
-    # Log-normal: median ~0.30, 95% range ~[0.11, 0.55]
-    noise_std = log_normal(-1.2, 0.5) @ "noise_std"
-
-    # Generate predictions for each house
-    coeffs = jnp.array([coef_0, coef_1, coef_2, coef_3])
-    predictions = X @ coeffs + intercept
-
-    # Sample outlier indicators for all houses (vectorized)
-    # Shape: (n_samples,) boolean array
-    outlier_probs = jnp.full(n_samples, 0.05)
-    is_outlier = flip(outlier_probs) @ "is_outlier"
-
-    # Use different noise levels for outliers vs normal observations:
-    # - Normal houses: tight Gaussian with noise_std
-    # - Outliers: wide Gaussian with 10x noise (captures extreme deviations)
-    outlier_noise_scale = 10.0
-    effective_noise = jnp.where(is_outlier, noise_std * outlier_noise_scale, noise_std)
-
-    # Likelihood with per-observation noise based on outlier status
-    normal(predictions, effective_noise) @ "log_prices"
-
-    return predictions, is_outlier
-
+# --- Main ---
 
 def main(use_mh=False, use_hmc=False, use_robust=False):
     print("=" * 60)
