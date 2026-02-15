@@ -23,7 +23,7 @@ import pandas as pd
 import numpy as np
 
 from genjax import gen, normal, uniform, flip, Target, ChoiceMap
-from genjax import Regenerate, SelectionBuilder
+from genjax import Regenerate, Selection
 from genjax.inference.requests import HMC
 from genjax.inference.smc import ImportanceK
 
@@ -192,13 +192,13 @@ def run_gibbs_hmc(target, n_samples=500, n_burnin=200, hmc_eps=0.0001, hmc_L=50,
     # Note: noise_std uses uniform prior with bounds, so we exclude it from HMC
     # and update it separately with Regenerate
     hmc_addrs = ["coef_0", "coef_1", "coef_2", "coef_3", "intercept"]
-    hmc_selection = SelectionBuilder[hmc_addrs[0]]
+    hmc_selection = Selection.at[hmc_addrs[0]]
     for addr in hmc_addrs[1:]:
-        hmc_selection = hmc_selection | SelectionBuilder[addr]
+        hmc_selection = hmc_selection | Selection.at[addr]
 
     # Discrete/bounded variables: outlier indicator + noise_std
     # These are updated via Regenerate (resample from conditional prior)
-    discrete_selection = SelectionBuilder["is_outlier"] | SelectionBuilder["noise_std"]
+    discrete_selection = Selection.at["is_outlier"] | Selection.at["noise_std"]
 
     continuous_addrs = ["coef_0", "coef_1", "coef_2", "coef_3", "intercept", "noise_std"]
 
