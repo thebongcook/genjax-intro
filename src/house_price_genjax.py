@@ -117,7 +117,16 @@ def robust_house_price_model(X):
 # --- Inference Steps ---
 
 def gibbs_step(trace, key, selection):
-    """Resample selected addresses from their conditional distribution."""
+    """Resample selected addresses from their exact conditional distribution.
+
+    Gibbs sampling works by looping over variable groups and, for each group,
+    resampling its value while keeping everything else fixed. In our robust
+    model this means: for every data point, given the current coefficients and
+    all other outlier labels, ask "should this observation be treated as an
+    outlier or not?" and flip a coin weighted by how well each option explains
+    the data. Because we resample from the exact conditional, Gibbs moves are
+    always accepted — no Metropolis-Hastings accept/reject step is needed.
+    """
     request = Regenerate(selection)
     trace, _, _, _ = trace.edit(key, request)
     return trace
@@ -378,6 +387,17 @@ def run_gibbs_hmc(target, n_samples=500, n_burnin=200, hmc_eps=0.0001, hmc_L=50,
 
     print(f"    Running {n_burnin} burn-in + {n_samples} sampling iterations...")
 
+    # Each MCMC iteration alternates two complementary moves:
+    #   1. Gibbs step — resample discrete outlier indicators (and noise_std)
+    #      from their exact conditional, holding coefficients fixed. This asks:
+    #      "given the current regression line, which data points look like
+    #      outliers?" Gibbs moves always accept.
+    #   2. HMC step — propose a joint update to the continuous coefficients
+    #      using gradient information, holding outlier labels fixed. This asks:
+    #      "given which points are outliers, what's a better regression line?"
+    #      HMC proposes are accepted/rejected via Metropolis-Hastings.
+    # Alternating these two steps lets each inform the other, converging to
+    # the joint posterior over both discrete and continuous variables.
     for i in range(n_total):
         key, gibbs_key, hmc_key = jrandom.split(key, 3)
 
