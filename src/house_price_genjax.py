@@ -154,6 +154,23 @@ def run_importance_sampling(target, k_particles=1000, seed=42):
     return posterior_samples
 
 
+def gibbs_step(trace, key, selection):
+    """Resample selected addresses from their conditional distribution."""
+    request = Regenerate(selection)
+    trace, _, _, _ = trace.edit(key, request)
+    return trace
+
+
+def hmc_step(trace, key, selection, eps, L):
+    """Propose an HMC move and accept/reject via Metropolis-Hastings."""
+    hmc_key, accept_key = jrandom.split(key)
+    request = HMC(selection, eps=jnp.array(eps), L=L)
+    new_trace, weight, _, _ = trace.edit(hmc_key, request)
+    accepted = jnp.log(jrandom.uniform(accept_key)) < weight
+    trace = new_trace if accepted else trace
+    return trace, accepted
+
+
 def run_gibbs_hmc(target, n_samples=500, n_burnin=200, hmc_eps=0.0001, hmc_L=50, seed=42):
     """
     Run hybrid Gibbs + HMC inference for the robust model.
@@ -208,22 +225,12 @@ def run_gibbs_hmc(target, n_samples=500, n_burnin=200, hmc_eps=0.0001, hmc_L=50,
     for i in range(n_total):
         key, gibbs_key, hmc_key = jrandom.split(key, 3)
 
-        # --- Gibbs step: Resample discrete outlier indicators + noise_std ---
-        # Regenerate resamples the selected addresses from their exact conditional
-        # distribution, so Gibbs moves are always accepted (no MH step needed)
-        gibbs_request = Regenerate(discrete_selection)
-        current_trace, _, _, _ = current_trace.edit(gibbs_key, gibbs_request)
-
-        # --- HMC step: Update continuous coefficients ---
-        hmc_request = HMC(hmc_selection, eps=jnp.array(hmc_eps), L=hmc_L)
-        new_trace, hmc_weight, _, _ = current_trace.edit(hmc_key, hmc_request)
-
-        # Accept/reject HMC move (HMC proposes, MH accepts/rejects)
-        hmc_accept_key, key = jrandom.split(key)
-        if jnp.log(jrandom.uniform(hmc_accept_key)) < hmc_weight:
-            current_trace = new_trace
-            if i >= n_burnin:
-                n_hmc_accepted += 1
+        current_trace = gibbs_step(current_trace, gibbs_key, discrete_selection)
+        current_trace, accepted = hmc_step(
+            current_trace, hmc_key, hmc_selection, hmc_eps, hmc_L
+        )
+        if accepted and i >= n_burnin:
+            n_hmc_accepted += 1
 
         # Store sample (after burn-in)
         if i >= n_burnin:
