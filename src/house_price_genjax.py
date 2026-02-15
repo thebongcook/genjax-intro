@@ -8,6 +8,7 @@ uncertainty-aware house price prediction.
 Usage:
     python house_price_genjax.py              # Default: importance sampling
     python house_price_genjax.py --mh         # Use Metropolis-Hastings
+    python house_price_genjax.py --hmc        # Use Hamiltonian Monte Carlo
     python house_price_genjax.py --robust     # Robust model with hybrid Gibbs+HMC inference
 
 The --robust flag uses a robust model with outlier detection and demonstrates
@@ -258,6 +259,74 @@ def run_gibbs_hmc(target, n_samples=500, n_burnin=200, hmc_eps=0.0001, hmc_L=50,
     return posterior_samples
 
 
+def run_hmc(target, n_samples=1000, n_burnin=500, hmc_eps=0.0001, hmc_L=50, seed=42):
+    """
+    Run HMC inference for the standard model (all continuous variables).
+
+    Args:
+        target: GenJAX Target with model, args, and constraints
+        n_samples: Number of posterior samples to collect (after burn-in)
+        n_burnin: Number of burn-in iterations to discard
+        hmc_eps: HMC leapfrog step size
+        hmc_L: Number of HMC leapfrog steps
+        seed: Random seed for reproducibility
+
+    Returns:
+        posterior_samples: Dictionary of posterior samples for each latent variable
+    """
+    key = jrandom.PRNGKey(seed)
+    model = target.p
+    args = target.args
+    constraints = target.constraint
+
+    latent_names = ["coef_0", "coef_1", "coef_2", "coef_3", "intercept"]
+    hmc_selection = Selection.at[latent_names[0]]
+    for addr in latent_names[1:]:
+        hmc_selection = hmc_selection | Selection.at[addr]
+
+    # noise_std uses log_normal (positive-valued), update via Regenerate
+    noise_selection = Selection.at["noise_std"]
+    all_latents = latent_names + ["noise_std"]
+
+    # Initialize trace
+    key, init_key = jrandom.split(key)
+    current_trace, _ = model.importance(init_key, constraints, args)
+
+    samples = {name: [] for name in all_latents}
+    n_total = n_burnin + n_samples
+    n_hmc_accepted = 0
+
+    print(f"    Running {n_burnin} burn-in + {n_samples} sampling iterations...")
+
+    for i in range(n_total):
+        key, noise_key, hmc_key = jrandom.split(key, 3)
+
+        # Regenerate noise_std from conditional
+        current_trace = gibbs_step(current_trace, noise_key, noise_selection)
+
+        # HMC for coefficients + intercept
+        current_trace, accepted = hmc_step(
+            current_trace, hmc_key, hmc_selection, hmc_eps, hmc_L
+        )
+        if accepted and i >= n_burnin:
+            n_hmc_accepted += 1
+
+        if i >= n_burnin:
+            choices = current_trace.get_choices()
+            for name in all_latents:
+                samples[name].append(float(choices[name]))
+
+        if (i + 1) % 100 == 0:
+            print(f"    Iteration {i + 1}/{n_total}")
+
+    posterior_samples = {name: jnp.array(vals) for name, vals in samples.items()}
+
+    hmc_accept_rate = n_hmc_accepted / n_samples
+    print(f"    HMC acceptance rate: {hmc_accept_rate:.1%}")
+
+    return posterior_samples
+
+
 @gen
 def house_price_model(X):
     """
@@ -341,7 +410,7 @@ def robust_house_price_model(X):
     return predictions, is_outlier
 
 
-def main(use_mh=False, use_robust=False):
+def main(use_mh=False, use_hmc=False, use_robust=False):
     print("=" * 60)
     print("GenJAX Bayesian House Price Prediction")
     if use_robust:
@@ -415,6 +484,15 @@ def main(use_mh=False, use_robust=False):
         posterior_samples = run_gibbs_hmc(
             target,
             n_samples=n_mcmc_samples, n_burnin=n_mcmc_burnin,
+            hmc_eps=0.0001, hmc_L=50, seed=42
+        )
+    elif use_hmc:
+        print("\n[3] Running HMC inference...")
+        n_samples = 1000
+        n_burnin = 500
+        print(f"    MCMC samples: {n_samples} (after {n_burnin} burn-in)")
+        posterior_samples = run_hmc(
+            target, n_samples=n_samples, n_burnin=n_burnin,
             hmc_eps=0.0001, hmc_L=50, seed=42
         )
     elif use_mh:
@@ -567,7 +645,8 @@ def main(use_mh=False, use_robust=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GenJAX Bayesian House Price Prediction")
-    parser.add_argument("--mh", action="store_true", help="Use Metropolis-Hastings instead of importance sampling (WIP)")
+    parser.add_argument("--mh", action="store_true", help="Use Metropolis-Hastings instead of importance sampling")
+    parser.add_argument("--hmc", action="store_true", help="Use Hamiltonian Monte Carlo instead of importance sampling")
     parser.add_argument("--robust", action="store_true", help="Use robust model with outlier detection (Gibbs+HMC inference)")
     args = parser.parse_args()
-    main(use_mh=args.mh, use_robust=args.robust)
+    main(use_mh=args.mh, use_hmc=args.hmc, use_robust=args.robust)
