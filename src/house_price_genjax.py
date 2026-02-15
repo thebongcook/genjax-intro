@@ -22,7 +22,7 @@ import jax.random as jrandom
 import pandas as pd
 import numpy as np
 
-from genjax import gen, normal, uniform, flip, Target, ChoiceMap
+from genjax import gen, normal, uniform, log_normal, flip, Target, ChoiceMap
 from genjax import Regenerate, Selection
 from genjax.inference.requests import HMC
 from genjax.inference.smc import ImportanceK
@@ -52,7 +52,6 @@ def run_metropolis_hastings(target, n_samples=1000, n_burnin=500, step_size=0.1,
     args = target.args
     constraints = target.constraint
 
-    # Latent variable names and their bounds (for noise_std which is uniform)
     latent_names = ["coef_0", "coef_1", "coef_2", "coef_3", "intercept", "noise_std"]
 
     # Initialize from prior using importance sampling (single particle)
@@ -80,14 +79,6 @@ def run_metropolis_hastings(target, n_samples=1000, n_burnin=500, step_size=0.1,
             current_val = current_choices[name]
             noise = jrandom.normal(jrandom.fold_in(proposal_key, j)) * step_size
             proposed_val = current_val + noise
-
-            # Clip noise_std to valid range [0.1, 0.5]
-            # Note: Clipping breaks proposal symmetry at boundaries, which technically
-            # violates detailed balance. A proper fix would use reflection or
-            # log-transform. Acceptable for this WIP implementation.
-            if name == "noise_std":
-                proposed_val = jnp.clip(proposed_val, 0.1, 0.5)
-
             proposed_values[name] = proposed_val
 
         # Build proposed choice map (latents + observed data)
@@ -187,17 +178,16 @@ def run_gibbs_hmc(target, n_samples=500, n_burnin=200, hmc_eps=0.0001, hmc_L=50,
     args = target.args
     constraints = target.constraint
 
-    # Define selections for different variable types using SelectionBuilder
-    # HMC variables: coefficients and intercept (unbounded normal priors)
-    # Note: noise_std uses uniform prior with bounds, so we exclude it from HMC
-    # and update it separately with Regenerate
+    # HMC selection: unbounded continuous variables (coefficients + intercept)
     hmc_addrs = ["coef_0", "coef_1", "coef_2", "coef_3", "intercept"]
     hmc_selection = Selection.at[hmc_addrs[0]]
     for addr in hmc_addrs[1:]:
         hmc_selection = hmc_selection | Selection.at[addr]
 
-    # Discrete/bounded variables: outlier indicator + noise_std
-    # These are updated via Regenerate (resample from conditional prior)
+    # Gibbs selection: discrete outlier indicators + noise_std
+    # noise_std uses log_normal prior (positive-valued), so HMC leapfrog can
+    # propose invalid negative values. Regenerate handles it correctly by
+    # resampling from the conditional distribution.
     discrete_selection = Selection.at["is_outlier"] | Selection.at["noise_std"]
 
     continuous_addrs = ["coef_0", "coef_1", "coef_2", "coef_3", "intercept", "noise_std"]
@@ -278,7 +268,8 @@ def house_price_model(X):
     intercept = normal(12.0, 1.0) @ "intercept"  # ~$160k baseline
 
     # Prior on noise (houses vary in price even with same features)
-    noise_std = uniform(0.1, 0.5) @ "noise_std"
+    # Log-normal: median ~0.30, 95% range ~[0.11, 0.55]
+    noise_std = log_normal(-1.2, 0.5) @ "noise_std"
 
     # Generate predictions for each house
     coeffs = jnp.array([coef_0, coef_1, coef_2, coef_3])
@@ -319,7 +310,8 @@ def robust_house_price_model(X):
     intercept = normal(12.0, 1.0) @ "intercept"  # ~$160k baseline
 
     # Prior on noise for normal houses
-    noise_std = uniform(0.1, 0.5) @ "noise_std"
+    # Log-normal: median ~0.30, 95% range ~[0.11, 0.55]
+    noise_std = log_normal(-1.2, 0.5) @ "noise_std"
 
     # Generate predictions for each house
     coeffs = jnp.array([coef_0, coef_1, coef_2, coef_3])
